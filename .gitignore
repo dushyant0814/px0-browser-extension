@@ -3,3 +3,4 @@
 native-host.json
 .claude/
 .code-review-graph/
+dist/
