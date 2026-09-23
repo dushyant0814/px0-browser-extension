@@ -39,3 +39,61 @@ Both the extension service worker and the native host independently accept only
 credential-free HTTPS URLs on `github.com` and `gitlab.com`. The extension sends
 only the current page URL. Git authentication remains inside the user's normal
 Git credential helper.
+
+## Installing the helper
+
+Browsers cannot download or register native programs, so the extension's
+setup page asks for one terminal command. [install.sh](../install.sh):
+
+1. Finds px0, or installs it from `https://px0.ai/install.sh`.
+2. Downloads the gzipped `px0-extension-host` for your OS and CPU from the
+   latest GitHub release and checks it against `checksums.txt`.
+3. Installs it to `~/Library/Application Support/px0/` (macOS) or
+   `~/.local/share/px0/` (Linux). It records px0's path next to the helper,
+   because browsers start native hosts with a minimal `PATH`.
+4. Registers `ai.px0.launcher` with Chrome and any Chromium, Brave, Edge or
+   Arc profile it finds. Only your extension ID is allowed to use it.
+
+Re-run it after moving px0 or to update the helper.
+`px0-extension-host -check` prints the helper version and the px0 it will
+launch.
+
+## How the helper runs px0
+
+The helper uses only px0's public CLI:
+
+```sh
+px0 -host 127.0.0.1 -port <free port> -no-open <repo>[/<file>:<line>]
+```
+
+A viewer counts as ready once `GET /static/app.js` succeeds. It runs in its
+own process group, detached from Chrome, so it keeps running after Chrome
+stops the helper. Its output goes to `viewer.log` in the repository's cache
+entry.
+
+px0 is looked up in this order: `$PX0_BINARY`, `px0-extension-host.json`,
+`PATH`, then `/opt/homebrew/bin`, `/usr/local/bin`, `~/go/bin` and
+`~/.local/bin`.
+
+## Protocol
+
+Messages use protocol version 1:
+
+```json
+{"version":1,"id":1,"action":"warm","url":"https://github.com/px0-ai/px0"}
+```
+
+Actions are `warm`, `open`, `status` and `ping`. Responses echo `id` and
+return `{"ok":true}` or `{"ok":false,"error":"..."}`. A successful `open` also
+returns `viewerUrl`. `ping` takes no URL and returns `hostVersion`, `px0` and
+`px0Version`; the setup page uses it to detect the install.
+
+## Releasing
+
+Pushing a `v*` tag runs [release.yml](../.github/workflows/release.yml). It
+publishes the helper for `{darwin,linux}-{amd64,arm64}` (plain and gzipped),
+`install.sh`, `checksums.txt` and a zip of the extension. Asset names carry no
+version, so `releases/latest/download/...` always points at the newest helper.
+
+When building px0 itself from source, use `make build`, not plain `go build`.
+Without it the frontend bundle is missing and px0 serves a blank page.

@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 760" width="1000" height="760" role="img" aria-labelledby="title desc">
+  <title id="title">How the px0 browser extension works</title>
+  <desc id="desc">A GitHub or GitLab page in Chrome sends warm and open requests to the extension's service worker, which relays them over native messaging to px0-extension-host on your Mac. The helper shallow-clones the repository into a cache, starts px0 on a free localhost port, and returns the URL so the tab navigates to px0.</desc>
+  <defs>
+    <!-- Slight wobble so shapes look hand-drawn, Excalidraw style. -->
+    <filter id="rough" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7"/>
+      <feDisplacementMap in="SourceGraphic" scale="3.5"/>
+    </filter>
+    <marker id="head" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto-start-reverse">
+      <path d="M1 1.5 L10.5 6 L1 10.5" fill="none" stroke="#1e1e1e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="head-blue" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto-start-reverse">
+      <path d="M1 1.5 L10.5 6 L1 10.5" fill="none" stroke="#1971c2" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      text { font-family: Virgil, Excalifont, "Chalkboard SE", "Comic Sans MS", "Comic Neue", cursive; fill: #1e1e1e; }
+      .h { font-size: 19px; font-weight: 700; }
+      .s { font-size: 14px; fill: #495057; }
+      .lbl { font-size: 15px; }
+      .small { font-size: 13px; fill: #495057; }
+      .zone { font-size: 22px; font-weight: 700; fill: #868e96; }
+      .step { font-size: 15px; }
+      .num { font-size: 15px; font-weight: 700; fill: #ffffff; text-anchor: middle; }
+      .box { stroke: #1e1e1e; stroke-width: 2; }
+      .wire { fill: none; stroke: #1e1e1e; stroke-width: 2; stroke-linecap: round; }
+      .ret { fill: none; stroke: #1971c2; stroke-width: 2; stroke-dasharray: 7 6; stroke-linecap: round; }
+    </style>
+  </defs>
+
+  <rect width="1000" height="760" fill="#ffffff"/>
+
+  <!-- Zones -->
+  <g filter="url(#rough)" fill="none" stroke="#adb5bd" stroke-width="2" stroke-dasharray="10 8">
+    <rect x="20" y="50" width="320" height="440" rx="16"/>
+    <rect x="410" y="50" width="570" height="440" rx="16"/>
+  </g>
+  <text class="zone" x="36" y="38">Chrome</text>
+  <text class="zone" x="426" y="38">Your Mac</text>
+
+  <!-- Boxes -->
+  <g filter="url(#rough)">
+    <rect class="box" x="45" y="80" width="270" height="90" rx="12" fill="#a5d8ff"/>
+    <rect class="box" x="45" y="250" width="270" height="90" rx="12" fill="#d0bfff"/>
+    <rect class="box" x="45" y="390" width="270" height="80" rx="12" fill="#b2f2bb"/>
+    <rect class="box" x="440" y="250" width="230" height="90" rx="12" fill="#ffec99"/>
+    <rect class="box" x="730" y="80" width="225" height="90" rx="12" fill="#ffd8a8"/>
+    <rect class="box" x="730" y="380" width="225" height="90" rx="12" fill="#ffc9c9"/>
+  </g>
+
+  <text class="h" x="180" y="118" text-anchor="middle">GitHub / GitLab page</text>
+  <text class="s" x="180" y="142" text-anchor="middle">content.js listens for “.”</text>
+
+  <text class="h" x="180" y="288" text-anchor="middle">background.js</text>
+  <text class="s" x="180" y="312" text-anchor="middle">extension service worker</text>
+
+  <text class="h" x="180" y="424" text-anchor="middle">Same tab, now px0</text>
+  <text class="s" x="180" y="448" text-anchor="middle">http://127.0.0.1:PORT</text>
+
+  <text class="h" x="555" y="288" text-anchor="middle">px0-extension-host</text>
+  <text class="s" x="555" y="312" text-anchor="middle">the helper (Go binary)</text>
+
+  <text class="h" x="842" y="118" text-anchor="middle">Repo cache</text>
+  <text class="s" x="842" y="142" text-anchor="middle">~/Library/Caches/px0/…</text>
+
+  <text class="h" x="842" y="418" text-anchor="middle">px0</text>
+  <text class="s" x="842" y="442" text-anchor="middle">your installed px0,</text>
+  <text class="s" x="842" y="460" text-anchor="middle">on a free port</text>
+
+  <!-- Arrows -->
+  <g filter="url(#rough)">
+    <!-- page -> background -->
+    <path class="wire" d="M150 172 C 146 200, 154 222, 150 246" marker-end="url(#head)"/>
+    <!-- background -> helper -->
+    <path class="wire" d="M318 278 C 360 272, 400 282, 436 278" marker-end="url(#head)"/>
+    <!-- helper -> background (reply) -->
+    <path class="ret" d="M436 318 C 400 322, 360 314, 320 318" marker-end="url(#head-blue)"/>
+    <!-- background -> result tab -->
+    <path class="wire" d="M150 342 C 146 358, 154 372, 150 386" marker-end="url(#head)"/>
+    <!-- helper -> cache -->
+    <path class="wire" d="M640 248 C 670 210, 700 190, 752 174" marker-end="url(#head)"/>
+    <!-- helper -> px0 -->
+    <path class="wire" d="M640 342 C 670 370, 700 385, 726 405" marker-end="url(#head)"/>
+    <!-- cache -> px0 -->
+    <path class="wire" d="M842 174 C 838 250, 846 310, 842 376" stroke-dasharray="4 7" marker-end="url(#head)"/>
+    <!-- px0 -> result tab -->
+    <path class="wire" d="M726 450 C 600 470, 450 440, 320 440" marker-end="url(#head)"/>
+  </g>
+
+  <!-- Arrow labels, numbered to match the steps below -->
+  <g>
+    <circle cx="186" cy="200" r="11" fill="#1e1e1e"/><text class="num" x="186" y="205">1</text>
+    <text class="lbl" x="202" y="205">warm</text>
+    <circle cx="186" cy="226" r="11" fill="#1e1e1e"/><text class="num" x="186" y="231">4</text>
+    <text class="lbl" x="202" y="231">open</text>
+
+    <circle cx="340" cy="252" r="11" fill="#1e1e1e"/><text class="num" x="340" y="257">2</text>
+    <text class="lbl" x="356" y="257">relay</text>
+    <text class="small" x="378" y="303" text-anchor="middle">native messaging</text>
+    <circle cx="352" cy="338" r="11" fill="#1971c2"/><text class="num" x="352" y="343">6</text>
+    <text class="lbl" x="368" y="343" style="fill:#1971c2">URL</text>
+
+    <circle cx="186" cy="366" r="11" fill="#1e1e1e"/><text class="num" x="186" y="371">7</text>
+    <text class="lbl" x="202" y="371">navigate</text>
+
+    <circle cx="552" cy="219" r="11" fill="#1e1e1e"/><text class="num" x="552" y="224">3</text>
+    <text class="lbl" x="568" y="224">shallow</text>
+    <text class="lbl" x="568" y="242">git clone</text>
+
+    <circle cx="552" cy="392" r="11" fill="#1e1e1e"/><text class="num" x="552" y="397">5</text>
+    <text class="lbl" x="568" y="397">start or reuse</text>
+
+    <text class="small" x="852" y="270">serves files</text>
+    <text class="small" x="852" y="286">from the clone</text>
+
+    <text class="small" x="520" y="484" text-anchor="middle">browser loads the px0 UI from localhost</text>
+  </g>
+
+  <!-- Steps -->
+  <text class="h" x="30" y="540">Every repo you visit</text>
+  <g>
+    <circle cx="42" cy="569" r="10" fill="#1e1e1e"/><text class="num" x="42" y="574">1</text>
+    <text class="step" x="60" y="574">Page open 0.5 s: content.js sends <tspan font-weight="700">warm</tspan></text>
+    <circle cx="42" cy="597" r="10" fill="#1e1e1e"/><text class="num" x="42" y="602">2</text>
+    <text class="step" x="60" y="602">background.js relays it to the helper</text>
+    <circle cx="42" cy="625" r="10" fill="#1e1e1e"/><text class="num" x="42" y="630">3</text>
+    <text class="step" x="60" y="630">Helper shallow-clones the repo into the cache</text>
+    <circle cx="42" cy="653" r="10" fill="#1e1e1e"/><text class="num" x="42" y="658">4</text>
+    <text class="step" x="60" y="658">You press “.”: content.js sends <tspan font-weight="700">open</tspan></text>
+    <circle cx="42" cy="681" r="10" fill="#1e1e1e"/><text class="num" x="42" y="686">5</text>
+    <text class="step" x="60" y="686">Helper waits for the clone, then starts px0 (or reuses one)</text>
+    <circle cx="42" cy="709" r="10" fill="#1971c2"/><text class="num" x="42" y="714">6</text>
+    <text class="step" x="60" y="714">Helper replies with px0's localhost URL</text>
+    <circle cx="42" cy="737" r="10" fill="#1e1e1e"/><text class="num" x="42" y="742">7</text>
+    <text class="step" x="60" y="742">The tab navigates there and px0 takes over</text>
+  </g>
+
+  <!-- One-time setup -->
+  <g filter="url(#rough)">
+    <rect class="box" x="590" y="515" width="390" height="232" rx="14" fill="#e9ecef" stroke-dasharray="9 7"/>
+  </g>
+  <text class="h" x="610" y="547">One-time setup</text>
+  <text class="step" x="610" y="578">• Installing the extension opens its setup page</text>
+  <text class="step" x="610" y="606">• You paste one command into a terminal:</text>
+  <text class="small" x="626" y="628" font-family="ui-monospace, Menlo, monospace">curl … install.sh | sh -s -- EXT_ID</text>
+  <text class="step" x="610" y="656">• It downloads the helper from GitHub</text>
+  <text class="step" x="626" y="676">Releases and checks its checksum</text>
+  <text class="step" x="610" y="704">• It registers the helper with Chrome</text>
+  <text class="step" x="610" y="732">• The setup page shows “Connected”</text>
+</svg>
