@@ -43,7 +43,7 @@ jobs:
           cp install.sh dist/install.sh
           (cd dist && sha256sum px0-extension-host-* install.sh > checksums.txt && cat checksums.txt)
           # The extension itself, for loading unpacked or uploading to the Web Store.
-          zip -r "dist/px0-extension-$VERSION.zip" manifest.json background.js content.js setup.html setup.js LICENSE
+          zip -r "dist/px0-extension-$VERSION.zip" manifest.json background.js content.js setup.html setup.js icons LICENSE
 
       - uses: softprops/action-gh-release@v2
         with:
