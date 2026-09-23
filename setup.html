@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set up px0</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --border: #d1d9e0;
+    --code-bg: #f6f8fa; --ok: #1a7f37; --warn: #9a6700; --err: #cf222e; --accent: #0969da;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --border: #30363d;
+      --code-bg: #161b22; --ok: #3fb950; --warn: #d29922; --err: #f85149; --accent: #4493f8;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  main { max-width: 680px; margin: 0 auto; padding: 48px 16px; }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  h2 { font-size: 15px; margin: 32px 0 8px; }
+  p { margin: 0 0 12px; }
+  .muted { color: var(--muted); }
+  .status {
+    display: flex; gap: 10px; align-items: center; padding: 12px 14px;
+    border: 1px solid var(--border); border-radius: 8px; margin: 24px 0;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--warn); }
+  .status[data-state="ok"] .dot { background: var(--ok); }
+  .status[data-state="error"] .dot { background: var(--err); }
+  .command {
+    display: flex; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--code-bg); overflow: hidden;
+  }
+  .command code {
+    flex: 1; min-width: 0; padding: 12px 14px; overflow-x: auto; white-space: nowrap;
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  button {
+    flex: none; border: 0; border-left: 1px solid var(--border); padding: 0 16px;
+    background: transparent; color: var(--accent); font: inherit; cursor: pointer;
+  }
+  ul { padding-left: 20px; margin: 0 0 12px; }
+  a { color: var(--accent); }
+  kbd {
+    border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px;
+    padding: 0 5px; font: 13px ui-monospace, monospace;
+  }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Set up px0</h1>
+  <p class="muted">Press <kbd>.</kbd> on a GitHub or GitLab repository to open it in px0 on your machine.</p>
+
+  <div class="status" id="status" data-state="checking">
+    <span class="dot"></span>
+    <span id="status-text">Checking for the px0 helper…</span>
+  </div>
+
+  <section id="install">
+    <h2>Install the helper</h2>
+    <p>Browsers cannot run git or start px0 themselves, so a small helper does it. Paste this into a terminal once:</p>
+    <div class="command">
+      <code id="command"></code>
+      <button id="copy" type="button">Copy</button>
+    </div>
+    <p class="muted" style="margin-top:12px">This page connects automatically once the helper is installed.</p>
+
+    <h2>What the command does</h2>
+    <ul>
+      <li>Downloads <code>px0-extension-host</code> for your platform from the
+        <a id="releases" target="_blank" rel="noopener">GitHub release</a> and checks it against the release checksums.</li>
+      <li>Installs px0 from <a href="https://px0.ai" target="_blank" rel="noopener">px0.ai</a> if it is not already installed.</li>
+      <li>Allows only this extension to talk to the helper.</li>
+    </ul>
+    <p class="muted">Supports macOS and Linux with Chrome, Chromium, Brave, Edge and Arc.
+      <a id="script" target="_blank" rel="noopener">Read the script</a> before running it if you like.</p>
+  </section>
+
+  <section id="done" hidden>
+    <h2>You're set</h2>
+    <p>Open any GitHub or GitLab repository and press <kbd>.</kbd>. Repositories you visit are cloned in the background, so opening them is usually instant.</p>
+  </section>
+</main>
+<script src="setup.js"></script>
+</body>
+</html>

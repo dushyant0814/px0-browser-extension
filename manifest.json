@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Open in px0",
+  "description": "Press . on a GitHub or GitLab repository to open it in px0.",
+  "version": "0.1.0",
+  "minimum_chrome_version": "116",
+  "permissions": ["nativeMessaging", "activeTab"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*", "https://gitlab.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "Open this repository in px0"
+  }
+}

@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: host/go.mod
+          cache-dependency-path: host/go.mod
+      - name: Test host
+        working-directory: host
+        run: go vet ./... && go test ./...
+      - name: Check scripts
+        run: sh -n install.sh && sh -n install-host.sh && node --check background.js && node --check content.js && node --check setup.js
