@@ -37,6 +37,8 @@ jobs:
             (cd host && CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
               go build -trimpath -ldflags="-s -w -X main.version=$VERSION" \
               -o "../dist/px0-extension-host-$os-$arch" .)
+            # install.sh downloads the gzipped copy; it is roughly half the size.
+            gzip -9 -k "dist/px0-extension-host-$os-$arch"
           done
           cp install.sh dist/install.sh
           (cd dist && sha256sum px0-extension-host-* install.sh > checksums.txt && cat checksums.txt)

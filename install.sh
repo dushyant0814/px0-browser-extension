@@ -47,9 +47,15 @@ case "$(uname -m)" in
   *) die "unsupported architecture: $(uname -m)" ;;
 esac
 
+# fetch URL FILE [progress]. A download that stalls below 1 KB/s for 30 seconds
+# fails with an error instead of hanging silently.
 fetch() {
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --connect-timeout 10 --max-time 300 --retry 2 -o "$2" "$1"
+    if [ "${3:-}" = progress ] && [ -t 2 ]; then
+      curl -fL --progress-bar --connect-timeout 10 --speed-limit 1024 --speed-time 30 --retry 2 -o "$2" "$1"
+    else
+      curl -fsSL --connect-timeout 10 --speed-limit 1024 --speed-time 30 --retry 2 -o "$2" "$1"
+    fi
   elif command -v wget >/dev/null 2>&1; then
     wget -q -T 30 -t 3 -O "$2" "$1"
   else
@@ -120,11 +126,13 @@ else
     base="https://github.com/$REPO/releases/download/v${HOST_VERSION#v}"
   fi
   step "Downloading $asset ($HOST_VERSION)"
-  fetch "$base/$asset" "$tmp/$asset" || die "download failed: $base/$asset"
   fetch "$base/checksums.txt" "$tmp/checksums.txt" || die "download failed: $base/checksums.txt"
-  want=$(awk -v f="$asset" '$2 == f || $2 == "*" f { print $1 }' "$tmp/checksums.txt")
-  [ -n "$want" ] || die "checksums.txt has no entry for $asset"
-  [ "$(sha256 "$tmp/$asset")" = "$want" ] || die "checksum mismatch for $asset"
+  fetch "$base/$asset.gz" "$tmp/$asset.gz" progress ||
+    die "download failed or stalled: $base/$asset.gz (open it in a browser to check)"
+  want=$(awk -v f="$asset.gz" '$2 == f || $2 == "*" f { print $1 }' "$tmp/checksums.txt")
+  [ -n "$want" ] || die "checksums.txt has no entry for $asset.gz"
+  [ "$(sha256 "$tmp/$asset.gz")" = "$want" ] || die "checksum mismatch for $asset.gz"
+  gunzip "$tmp/$asset.gz"
   say "Verified checksum"
 fi
 
