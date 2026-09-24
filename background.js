@@ -91,7 +91,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     reply = postNative({ action: "ping" });
   } else if (message?.action === "open") {
     reply = openRepository(message.url);
-  } else if (["warm", "status"].includes(message?.action)) {
+  } else if (["warm", "prefetch", "status"].includes(message?.action)) {
     reply = sendNative(message.action, message.url);
   } else {
     return false;

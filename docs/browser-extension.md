@@ -16,11 +16,21 @@ joins an existing clone job when one is running and otherwise reuses the cached
 checkout. The helper then launches px0 on it, or reuses a px0 viewer already
 serving that checkout.
 
+Hovering a repository link for 0.3 seconds sends `prefetch`, which clones it
+before you click. At most two prefetches run at once. Links into the
+repository you are already on are skipped, since its own warm-up covers them.
+
 Cached repositories live under the operating system's user cache directory,
-not inside an existing workspace. The helper keeps at most ten clean entries.
-It skips repositories with working-tree changes and repositories served by an
-active viewer, so cache eviction does not discard agent edits or remove files
-from a running session.
+not inside an existing workspace. Eviction is least recently used first, in
+two separate budgets:
+
+- up to ten repositories you have opened or visited
+- up to five hover prefetches you have not opened yet
+
+A prefetch only ever displaces another prefetch. Opening a prefetched
+repository moves it into the first budget. Eviction skips repositories with
+working-tree changes and repositories served by an active viewer, so it never
+discards agent edits or removes files from a running session.
 
 ## Supported pages
 

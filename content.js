@@ -1,18 +1,39 @@
 const WARM_DELAY_MS = 500;
+const HOVER_DELAY_MS = 300;
 let opening = false;
 let warmTimer;
 let lastURL;
 let lastWarmed;
+let hoverLink;
+let hoverTimer;
+const prefetched = new Set();
 
 // repositoryKey returns "host/project@ref" for a repository page, or null for
 // any other page. It identifies what the helper will clone, so moving between
 // files of the same repository does not trigger another warm-up.
 function repositoryKey(raw) {
-  const url = new URL(raw);
+  return parseRepository(raw)?.key ?? null;
+}
+
+// repositoryLinkKey is repositoryKey for links that point at the repository's
+// code (its root, a tree or a blob), not at its issues, pull requests or other
+// pages, which are rarely followed by ".".
+function repositoryLinkKey(raw) {
+  const repo = parseRepository(raw);
+  return repo && (repo.tail.length === 0 || repo.tail[0] === "tree" || repo.tail[0] === "blob") ? repo.key : null;
+}
+
+function parseRepository(raw) {
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
   const parts = url.pathname.split("/").filter(Boolean);
   let project, tail;
   if (url.hostname === "github.com") {
-    const reserved = new Set(["collections", "codespaces", "enterprise", "events", "explore", "features", "issues", "login", "marketplace", "new", "notifications", "orgs", "pricing", "pulls", "search", "settings", "signup", "sponsors", "topics", "trending"]);
+    const reserved = new Set(["about", "account", "apps", "collections", "codespaces", "customer-stories", "dashboard", "enterprise", "events", "explore", "features", "issues", "login", "marketplace", "new", "notifications", "orgs", "pricing", "pulls", "readme", "resources", "search", "security", "sessions", "settings", "signup", "site", "solutions", "sponsors", "team", "topics", "trending", "users"]);
     if (parts.length < 2 || reserved.has(parts[0])) return null;
     project = parts.slice(0, 2);
     tail = parts.slice(2);
@@ -26,7 +47,7 @@ function repositoryKey(raw) {
     return null;
   }
   const ref = (tail[0] === "blob" || tail[0] === "tree") && tail[1] ? tail[1] : "";
-  return `${url.hostname}/${project.join("/").toLowerCase()}@${ref}`;
+  return { key: `${url.hostname}/${project.join("/").toLowerCase()}@${ref}`, tail };
 }
 
 function editable(target) {
@@ -90,6 +111,40 @@ function checkLocation() {
 checkLocation();
 setInterval(checkLocation, 500);
 addEventListener("popstate", checkLocation);
+
+// Hovering a repository link for a moment starts cloning it before the click.
+// The helper keeps these in a separate, smaller cache budget and limits how
+// many run at once, so hovering never evicts repositories you opened.
+function prefetch(link) {
+  const key = repositoryLinkKey(link.href);
+  // Links within the current repository are covered by its own warm-up.
+  const project = (k) => k?.slice(0, k.lastIndexOf("@"));
+  if (!key || project(key) === project(repositoryKey(location.href)) || prefetched.has(key)) return;
+  prefetched.add(key);
+  chrome.runtime.sendMessage({ action: "prefetch", url: link.href })
+    .then((response) => {
+      // Busy or failed: let a later hover try again.
+      if (!response?.ok || response.state === "skipped") prefetched.delete(key);
+    })
+    .catch(() => prefetched.delete(key));
+}
+
+document.addEventListener("mouseover", (event) => {
+  const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+  if (!link || link === hoverLink) return;
+  clearTimeout(hoverTimer);
+  hoverLink = link;
+  hoverTimer = setTimeout(() => {
+    if (hoverLink === link) prefetch(link);
+  }, HOVER_DELAY_MS);
+}, { passive: true });
+
+document.addEventListener("mouseout", (event) => {
+  if (hoverLink && !hoverLink.contains(event.relatedTarget)) {
+    clearTimeout(hoverTimer);
+    hoverLink = undefined;
+  }
+}, { passive: true });
 
 addEventListener("keydown", (event) => {
   if (event.key !== "." || event.repeat || event.ctrlKey || event.metaKey || event.altKey || editable(event.target)) return;

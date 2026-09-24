@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"reflect"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestNormalizeRepositoryURL(t *testing.T) {
@@ -152,5 +154,89 @@ func TestBranchURLReusesDefaultBranchCheckout(t *testing.T) {
 	onOther, _ := normalizeRepositoryURL("https://github.com/o/r/tree/feature")
 	if got := cache.reuseDefaultBranch(onOther); got.Key != onOther.Key {
 		t.Fatalf("feature URL reused the main checkout")
+	}
+}
+
+// fakeEntry creates a clean cached repository with the given age.
+func fakeEntry(t *testing.T, root, name string, age time.Duration, prefetched bool) {
+	t.Helper()
+	entry := filepath.Join(root, name)
+	if out, err := exec.Command("git", "init", "-q", filepath.Join(entry, "repo")).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	if prefetched {
+		if err := os.WriteFile(filepath.Join(entry, prefetchMarker), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	when := time.Now().Add(-age)
+	if err := os.Chtimes(entry, when, when); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEvictBudgetsPrefetchesSeparately(t *testing.T) {
+	root := t.TempDir()
+	cache := &repositoryCache{root: root, jobs: make(map[string]*repositoryJob)}
+	// 12 opened repositories; o00 is the most recently used.
+	for i := 0; i < 12; i++ {
+		fakeEntry(t, root, fmt.Sprintf("o%02d", i), time.Duration(i+1)*time.Hour, false)
+	}
+	// 7 hover prefetches, all newer than every opened repository.
+	for i := 0; i < 7; i++ {
+		fakeEntry(t, root, fmt.Sprintf("p%02d", i), time.Duration(i+1)*time.Minute, true)
+	}
+	cache.evict("")
+
+	for i := 0; i < 12; i++ {
+		_, err := os.Stat(filepath.Join(root, fmt.Sprintf("o%02d", i)))
+		if kept := err == nil; kept != (i < repositoryCacheLimit) {
+			t.Errorf("opened o%02d kept = %v", i, kept)
+		}
+	}
+	for i := 0; i < 7; i++ {
+		_, err := os.Stat(filepath.Join(root, fmt.Sprintf("p%02d", i)))
+		if kept := err == nil; kept != (i < prefetchCacheLimit) {
+			t.Errorf("prefetched p%02d kept = %v", i, kept)
+		}
+	}
+}
+
+func TestPrefetchIsNotUse(t *testing.T) {
+	root := t.TempDir()
+	cache := &repositoryCache{root: root, jobs: make(map[string]*repositoryJob)}
+	spec, _ := normalizeRepositoryURL("https://github.com/o/r")
+	fakeEntry(t, root, spec.Key, time.Hour, true)
+	marker := filepath.Join(root, spec.Key, prefetchMarker)
+	before, _ := os.Stat(filepath.Join(root, spec.Key))
+
+	if _, state, err := cache.warm(spec, true); err != nil || state != "ready" {
+		t.Fatalf("prefetch = %q, %v", state, err)
+	}
+	after, _ := os.Stat(filepath.Join(root, spec.Key))
+	if _, err := os.Stat(marker); err != nil || !after.ModTime().Equal(before.ModTime()) {
+		t.Fatal("prefetch of a cached repository promoted it")
+	}
+
+	if _, _, err := cache.warm(spec, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatal("opening a prefetched repository did not promote it")
+	}
+}
+
+func TestPrefetchConcurrencyIsCapped(t *testing.T) {
+	cache := &repositoryCache{root: t.TempDir(), jobs: make(map[string]*repositoryJob)}
+	for i := 0; i < prefetchConcurrency; i++ {
+		cache.jobs[fmt.Sprint("busy", i)] = &repositoryJob{done: make(chan struct{}), prefetch: true}
+	}
+	spec, _ := normalizeRepositoryURL("https://github.com/o/r")
+	job, state, err := cache.warm(spec, true)
+	if err != nil || job != nil || state != "skipped" {
+		t.Fatalf("prefetch over the cap = (%v, %q, %v), want skipped", job, state, err)
+	}
+	if len(cache.jobs) != prefetchConcurrency {
+		t.Fatalf("prefetch over the cap started a clone")
 	}
 }

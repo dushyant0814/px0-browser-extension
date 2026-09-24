@@ -24,6 +24,13 @@ const (
 	nativeProtocolVersion = 1
 	nativeMessageMax      = 4 << 20
 	repositoryCacheLimit  = 10
+	// Repositories cloned ahead of time because a link was hovered, and not
+	// opened since, get their own smaller budget so hovering can never evict
+	// a repository the user actually opened.
+	prefetchCacheLimit = 5
+	// Hover prefetches share bandwidth with the clone for the page being read.
+	prefetchConcurrency = 2
+	prefetchMarker      = "prefetched"
 )
 
 type nativeRequest struct {
@@ -59,6 +66,10 @@ type repositorySpec struct {
 type repositoryJob struct {
 	done chan struct{}
 	err  error
+
+	// prefetch is true while only hover prefetches have asked for this clone.
+	// Guarded by repositoryCache.mu.
+	prefetch bool
 }
 
 type repositoryCache struct {
@@ -228,35 +239,74 @@ func (c *repositoryCache) ready(spec repositorySpec) bool {
 	return err == nil && st.IsDir()
 }
 
-func (c *repositoryCache) warm(spec repositorySpec) (*repositoryJob, string, error) {
+// warm starts cloning spec unless it is cached or already being cloned. A
+// prefetch (hover) does not count as use: it neither refreshes a cached entry's
+// LRU position nor promotes a prefetched entry, and it is skipped when enough
+// prefetches are already running.
+func (c *repositoryCache) warm(spec repositorySpec, prefetch bool) (*repositoryJob, string, error) {
 	if err := os.MkdirAll(c.root, 0o700); err != nil {
 		return nil, "", err
 	}
+	entry := c.entryPath(spec)
 	if c.ready(spec) {
-		_ = os.Chtimes(c.entryPath(spec), time.Now(), time.Now())
+		if !prefetch {
+			// The clone may have just landed with its job still finishing;
+			// make sure that job does not mark this opened entry afterwards.
+			c.mu.Lock()
+			if job := c.jobs[spec.Key]; job != nil {
+				job.prefetch = false
+			}
+			c.mu.Unlock()
+			_ = os.Remove(filepath.Join(entry, prefetchMarker))
+			_ = os.Chtimes(entry, time.Now(), time.Now())
+		}
 		return nil, "ready", nil
 	}
 
 	c.mu.Lock()
 	if job := c.jobs[spec.Key]; job != nil {
+		if !prefetch {
+			job.prefetch = false
+		}
 		c.mu.Unlock()
 		return job, "cloning", nil
 	}
-	job := &repositoryJob{done: make(chan struct{})}
+	if prefetch && c.runningPrefetches() >= prefetchConcurrency {
+		c.mu.Unlock()
+		return nil, "skipped", nil
+	}
+	job := &repositoryJob{done: make(chan struct{}), prefetch: prefetch}
 	c.jobs[spec.Key] = job
 	c.mu.Unlock()
 
 	go func() {
-		job.err = c.clone(spec)
-		close(job.done)
+		err := c.clone(spec)
 		c.mu.Lock()
+		// Decide under the lock so an open that joins at the last moment
+		// still promotes the entry.
+		if err == nil && job.prefetch {
+			err = os.WriteFile(filepath.Join(entry, prefetchMarker), nil, 0o600)
+		}
+		job.err = err
 		delete(c.jobs, spec.Key)
 		c.mu.Unlock()
-		if job.err == nil {
+		close(job.done)
+		if err == nil {
 			c.evict(spec.Key)
 		}
 	}()
 	return job, "cloning", nil
+}
+
+// runningPrefetches must be called with c.mu held.
+func (c *repositoryCache) runningPrefetches() int {
+	n := 0
+	for _, job := range c.jobs {
+		if job.prefetch {
+			n++
+		}
+	}
+	return n
 }
 
 func (c *repositoryCache) clone(spec repositorySpec) error {
@@ -309,7 +359,7 @@ func repositoryCloneArgs(spec repositorySpec, destination string) []string {
 }
 
 func (c *repositoryCache) wait(ctx context.Context, spec repositorySpec) (string, error) {
-	job, _, err := c.warm(spec)
+	job, _, err := c.warm(spec, false)
 	if err != nil {
 		return "", err
 	}
@@ -326,9 +376,11 @@ func (c *repositoryCache) wait(ctx context.Context, spec repositorySpec) (string
 	return c.repoPath(spec), nil
 }
 
-// evict keeps the cache bounded by entry count. Active viewers are detected by
-// their recorded localhost port; dirty repositories are retained so an agent's
-// edits can never be discarded by cache maintenance.
+// evict keeps the cache bounded by entry count, least recently used first.
+// Opened and hover-prefetched repositories are budgeted separately, so
+// prefetches only ever displace other prefetches. Active viewers are detected
+// by their recorded localhost port; dirty repositories are retained so an
+// agent's edits can never be discarded by cache maintenance.
 func (c *repositoryCache) evict(keep string) {
 	entries, err := os.ReadDir(c.root)
 	if err != nil {
@@ -338,41 +390,47 @@ func (c *repositoryCache) evict(keep string) {
 		path string
 		mod  time.Time
 	}
-	var old []candidate
-	repositories := 0
+	var opened, prefetched []candidate
 	for _, entry := range entries {
 		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".clone-") {
 			continue
 		}
-		repositories++
-		if entry.Name() == keep {
-			continue
-		}
 		info, err := entry.Info()
-		if err == nil {
-			old = append(old, candidate{path: filepath.Join(c.root, entry.Name()), mod: info.ModTime()})
-		}
-	}
-	if repositories <= repositoryCacheLimit {
-		return
-	}
-	sort.Slice(old, func(i, j int) bool { return old[i].mod.Before(old[j].mod) })
-	remove := repositories - repositoryCacheLimit
-	for _, item := range old {
-		if remove <= 0 {
-			break
-		}
-		repo := filepath.Join(item.path, "repo")
-		if cacheEntryActive(item.path) {
+		if err != nil {
 			continue
 		}
-		if out, err := exec.Command("git", "--no-optional-locks", "-C", repo, "status", "--porcelain").Output(); err != nil || len(out) != 0 {
-			continue
+		item := candidate{path: filepath.Join(c.root, entry.Name()), mod: info.ModTime()}
+		if entry.Name() == keep {
+			// Counted toward its bucket but never removed.
+			item.mod = time.Now().Add(time.Hour)
 		}
-		if os.RemoveAll(item.path) == nil {
-			remove--
+		if _, err := os.Stat(filepath.Join(item.path, prefetchMarker)); err == nil {
+			prefetched = append(prefetched, item)
+		} else {
+			opened = append(opened, item)
 		}
 	}
+	trim := func(bucket []candidate, limit int) {
+		sort.Slice(bucket, func(i, j int) bool { return bucket[i].mod.Before(bucket[j].mod) })
+		remove := len(bucket) - limit
+		for _, item := range bucket {
+			if remove <= 0 {
+				return
+			}
+			if filepath.Base(item.path) == keep || cacheEntryActive(item.path) {
+				continue
+			}
+			repo := filepath.Join(item.path, "repo")
+			if out, err := exec.Command("git", "--no-optional-locks", "-C", repo, "status", "--porcelain").Output(); err != nil || len(out) != 0 {
+				continue
+			}
+			if os.RemoveAll(item.path) == nil {
+				remove--
+			}
+		}
+	}
+	trim(opened, repositoryCacheLimit)
+	trim(prefetched, prefetchCacheLimit)
 }
 
 func cacheEntryViewerPort(entry string) (int, bool) {
@@ -429,8 +487,8 @@ func handleNativeRequest(cache *repositoryCache, req nativeRequest) nativeRespon
 	}
 	spec = cache.reuseDefaultBranch(spec)
 	switch req.Action {
-	case "warm":
-		_, state, err := cache.warm(spec)
+	case "warm", "prefetch":
+		_, state, err := cache.warm(spec, req.Action == "prefetch")
 		if err != nil {
 			resp.Error = err.Error()
 			return resp
