@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -79,7 +80,7 @@ func TestRepositoryCloneIsShallowAndSingleBranch(t *testing.T) {
 	spec := repositorySpec{CloneURL: "https://github.com/o/r.git", Ref: "feature"}
 	got := repositoryCloneArgs(spec, "/cache/repo")
 	want := []string{
-		"clone", "--depth=1", "--filter=blob:none", "--single-branch", "--no-tags",
+		"clone", "--depth=1", "--single-branch", "--no-tags",
 		"--branch", "feature", "https://github.com/o/r.git", "/cache/repo",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -128,5 +129,27 @@ func TestNativePingReportsPx0(t *testing.T) {
 	resp = handleNativeRequest(cache, nativeRequest{Version: 1, ID: 4, Action: "ping"})
 	if resp.OK || resp.HostVersion == "" || resp.Error == "" {
 		t.Fatalf("ping without px0 = %+v", resp)
+	}
+}
+
+func TestBranchURLReusesDefaultBranchCheckout(t *testing.T) {
+	cache := &repositoryCache{root: t.TempDir(), jobs: make(map[string]*repositoryJob)}
+	root, err := normalizeRepositoryURL("https://github.com/o/r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := cache.repoPath(root)
+	if out, err := exec.Command("git", "init", "-q", "-b", "main", repo).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+
+	onMain, _ := normalizeRepositoryURL("https://github.com/o/r/blob/main/a.go#L3")
+	got := cache.reuseDefaultBranch(onMain)
+	if got.Key != root.Key || got.InitialFile != "a.go" || got.InitialLine != 3 {
+		t.Fatalf("main URL = %+v, want default checkout %s with file kept", got, root.Key)
+	}
+	onOther, _ := normalizeRepositoryURL("https://github.com/o/r/tree/feature")
+	if got := cache.reuseDefaultBranch(onOther); got.Key != onOther.Key {
+		t.Fatalf("feature URL reused the main checkout")
 	}
 }

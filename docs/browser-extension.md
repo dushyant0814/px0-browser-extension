@@ -10,7 +10,7 @@ px0; px0 itself needs no extension-specific support.
 
 After a supported repository page remains open for 0.5 seconds, the extension
 sends a `warm` message to the helper through Chrome Native Messaging. The
-helper starts a depth-one, no-tags, single-branch partial clone in the
+helper starts a depth-one, no-tags, single-branch shallow clone in the
 background and skips Git LFS payload smudging. Pressing `.` sends `open`; it
 joins an existing clone job when one is running and otherwise reuses the cached
 checkout. The helper then launches px0 on it, or reuses a px0 viewer already

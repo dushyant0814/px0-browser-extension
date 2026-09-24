@@ -152,9 +152,13 @@ func normalizeRepositoryURL(raw string) (repositorySpec, error) {
 	if fragment := strings.TrimPrefix(u.Fragment, "L"); fragment != u.Fragment {
 		spec.InitialLine, _ = strconv.Atoi(strings.Split(fragment, "-")[0])
 	}
-	sum := sha256.Sum256([]byte(strings.ToLower(cloneURL) + "\n" + spec.Ref))
-	spec.Key = hex.EncodeToString(sum[:12])
+	spec.Key = repositoryKey(cloneURL, spec.Ref)
 	return spec, nil
+}
+
+func repositoryKey(cloneURL, ref string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(cloneURL) + "\n" + ref))
+	return hex.EncodeToString(sum[:12])
 }
 
 func validForgeSegment(segment string) bool {
@@ -197,6 +201,26 @@ func (c *repositoryCache) entryPath(spec repositorySpec) string {
 
 func (c *repositoryCache) repoPath(spec repositorySpec) string {
 	return filepath.Join(c.entryPath(spec), "repo")
+}
+
+// reuseDefaultBranch maps a branch URL onto the default-branch checkout when
+// that checkout is on the same branch. Landing on github.com/o/r and then
+// opening github.com/o/r/blob/main/... would otherwise clone main twice.
+func (c *repositoryCache) reuseDefaultBranch(spec repositorySpec) repositorySpec {
+	if spec.Ref == "" || c.ready(spec) {
+		return spec
+	}
+	base := spec
+	base.Ref = ""
+	base.Key = repositoryKey(spec.CloneURL, "")
+	if !c.ready(base) {
+		return spec
+	}
+	out, err := exec.Command("git", "--no-optional-locks", "-C", c.repoPath(base), "symbolic-ref", "--short", "HEAD").Output()
+	if err != nil || strings.TrimSpace(string(out)) != spec.Ref {
+		return spec
+	}
+	return base
 }
 
 func (c *repositoryCache) ready(spec repositorySpec) bool {
@@ -267,11 +291,11 @@ func (c *repositoryCache) clone(spec repositorySpec) error {
 
 func repositoryCloneArgs(spec repositorySpec, destination string) []string {
 	// px0 needs the complete current worktree for indexing and search, but it
-	// does not need old commits or tags merely to open a forge page. Blob
-	// filtering still helps servers that can postpone objects not required by
-	// the checkout, while depth=1 removes the usually much larger history.
+	// does not need old commits or tags merely to open a forge page. No
+	// --filter=blob:none: the checkout needs every blob anyway, and fetching
+	// them in a second round trip made clones about twice as slow.
 	args := []string{
-		"clone", "--depth=1", "--filter=blob:none", "--single-branch", "--no-tags",
+		"clone", "--depth=1", "--single-branch", "--no-tags",
 	}
 	if spec.Ref != "" {
 		args = append(args, "--branch", spec.Ref)
@@ -398,6 +422,7 @@ func handleNativeRequest(cache *repositoryCache, req nativeRequest) nativeRespon
 		resp.Error = err.Error()
 		return resp
 	}
+	spec = cache.reuseDefaultBranch(spec)
 	switch req.Action {
 	case "warm":
 		_, state, err := cache.warm(spec)
