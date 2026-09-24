@@ -294,7 +294,12 @@ func repositoryCloneArgs(spec repositorySpec, destination string) []string {
 	// does not need old commits or tags merely to open a forge page. No
 	// --filter=blob:none: the checkout needs every blob anyway, and fetching
 	// them in a second round trip made clones about twice as slow.
+	//
+	// Most of the remaining time is the single packfile download, which git
+	// cannot split. Writing the files can run in parallel (git 2.32+; older
+	// versions ignore these settings), which saves 1-2 s on large repositories.
 	args := []string{
+		"-c", "checkout.workers=0", "-c", "checkout.thresholdForParallelism=100",
 		"clone", "--depth=1", "--single-branch", "--no-tags",
 	}
 	if spec.Ref != "" {

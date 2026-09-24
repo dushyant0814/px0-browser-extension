@@ -80,6 +80,7 @@ func TestRepositoryCloneIsShallowAndSingleBranch(t *testing.T) {
 	spec := repositorySpec{CloneURL: "https://github.com/o/r.git", Ref: "feature"}
 	got := repositoryCloneArgs(spec, "/cache/repo")
 	want := []string{
+		"-c", "checkout.workers=0", "-c", "checkout.thresholdForParallelism=100",
 		"clone", "--depth=1", "--single-branch", "--no-tags",
 		"--branch", "feature", "https://github.com/o/r.git", "/cache/repo",
 	}
